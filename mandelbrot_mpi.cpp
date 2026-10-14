@@ -44,10 +44,6 @@ int main(int argc, char* argv[]) {
     double minX = -2.0, maxX = 1.0;
     double minY = -1.5, maxY = 1.5;
 
-    // payload: posição [0] = índice da linha Y, posições [1..largura] = pixels
-    // +1 pra guardar a posição desta linha
-    std::vector<int> payload(largura + 1);
-
     if (my_rank == 0) {
         //laço coordenador
         std::vector<int> iteracoes(largura * altura);
@@ -62,16 +58,17 @@ int main(int argc, char* argv[]) {
             linhas_enviadas++;
         }
 
-        // recebe resultado, cola na imagem, manda próxima linha pro mesmo rabalhador
+        // recebe resultado e escreve direto no buffer final via ponteiro
         while (linhas_concluidas < altura) {
-            MPI_Recv(payload.data(), largura + 1, MPI_INT, MPI_ANY_SOURCE, TAG_RESULT, MPI_COMM_WORLD, &status);
+            // MPI_Probe: descobre quem mandou e qual a tag (= índice y) ANTES de receber
+            MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
             int worker = status.MPI_SOURCE;
-            int y = payload[0];
+            int y      = status.MPI_TAG;  // a tag carrega o índice da linha
 
-            // Cola a linha na mesma posiçao que foi retirada (y)
-            for (int x = 0; x < largura; x++) {
-                iteracoes[y * largura + x] = payload[x + 1];
-            }
+            // Ponteiro direto para a posição correta no buffer — sem cópia intermediária - linha a ser enviada
+            int* destino = &iteracoes[y * largura];
+            MPI_Recv(destino, largura, MPI_INT, worker, y, MPI_COMM_WORLD, &status);
+
             linhas_concluidas++;
 
             // Manda mais trabalho ou manda parar
